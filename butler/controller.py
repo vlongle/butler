@@ -1,6 +1,5 @@
 from ai2thor.controller import Controller
 from ai2thor.platform import CloudRendering
-# import from utils
 from butler.utils import *
 
 
@@ -20,14 +19,24 @@ class ButController(Controller):
                          **kwargs)
 
     @property
-    def event(self):
+    def event(self) -> ai2thor.server.Event:
         return self.last_event
 
     @property
-    def agent(self):
+    def agent(self) -> Dict:
+        '''
+        Return the agent state
+        e.g.,
+        {'name': 'agent',
+        'position': {'x': 0.0, 'y': 0.9009992480278015, 'z': -1.25},
+        'rotation': {'x': -0.0, 'y': 90.0, 'z': 0.0},
+        'cameraHorizon': -0.0,
+        'isStanding': True,
+        'inHighFrictionArea': False}
+        '''
         return self.event.metadata['agent']
 
-    def render(self, plot=True, axis_off=True):
+    def render(self, plot=True, axis_off=True) -> np.ndarray:
         '''
         Render the current scene
         if plot is True, plot the RGB frame
@@ -39,7 +48,7 @@ class ButController(Controller):
                 plt.axis('off')
         return self.event.frame
 
-    def plot_frames(self):
+    def plot_frames(self) -> None:
         '''
         plot all the frames on an AI2-THOR Event
         including RGB, depth, instance segmentation, normals, and semantic segmentation
@@ -47,77 +56,117 @@ class ButController(Controller):
         plot_frames(self.event)
 
     @property
-    def visible_objects(self):
+    def all_objects(self) -> pd.DataFrame:
         """
-        get all the objects in self.objects that are visible
-        where visibility means not only the object is in the view
-        but also it is within the visibility distance so we can interact with it
-        (see: https://github.com/allenai/ai2thor/issues/815)
+        get a panda frame of all objects in the floorplan 
+        with their properties and metadata
         """
-        return self.objects[self.objects['visible']]
+        return preprocess_objects(self.event.metadata['objects'])
 
     @property
-    def invisible_objects(self):
+    def objects(self) -> pd.DataFrame:
+        """
+        All objects in the current scene / view (in the visual range)
+        """
+        objects_in_view = list(self.event.instance_detections2D.keys())
+        return self.all_objects[self.all_objects['objectId'].isin(objects_in_view)]
+
+    @property
+    def attributes(self) -> pd.Index:
+        return self.objects.columns
+
+    @property
+    def probably_interactable_objects(self) -> pd.DataFrame:
+        """
+        get all the objects in self.objects that are:
+        - visible: where visibility means NOT only the object is in the view
+        but also it is within the visibility distance 
+        (see: https://github.com/allenai/ai2thor/issues/815)
+        and part of pixels more than certain percentage probably
+        - isInteractable: it is not occluded by other objects
+        """
+        return self.objects[(self.objects['isInteractable']) & (self.objects['visible'])]
+
+    @property
+    def interactable_objects(self) -> pd.DataFrame:
+        objs = self.probably_interactable_objects
+        # filter objs to only include those where get_actionable_properties on the objectType column returns a non-empty list
+        return objs[objs['objectType'].apply(lambda obj_type: len(get_actionable_properties(self.event, obj_type))) > 0]
+
+    @property
+    def uninteractable_objects(self) -> pd.DataFrame:
         """
         get all the objects in self.objects that are invisible
         """
         return self.objects[(self.objects['visible'] == False)]
 
-    @property
-    def objects_in_floor(self):
+    def objects_by_type(self, obj_type, only_visible=False,  only_probably_interactable=False,
+                        only_interactable=False, ret_list=False) -> Union[pd.DataFrame, List]:
         """
-        get a panda frame of all objects in the floorplan 
-        with their properties and metadata
+        get all the objects in the scene by type
+        if only_visible is True, only return the objects in the current view
+        if only_probably_interactable is True, return the objects where the visible attribute is true (i.e., within the visibility distance)
+        if only_interactbale is True, return the objects where the visible attribute is true and the object has actionable properties
+        else return all the objects in the floorplan
         """
-        return get_objects(self.event)
+        objects = self.event.objects_by_type(obj_type)
+        if only_visible:
+            in_scene_objs = set(self.objects['name'])
+            objects = [obj for obj in objects
+                       if obj['name'] in in_scene_objs]
+        if only_probably_interactable:
+            probably_interactable_objs = set(
+                self.probably_interactable_objects['name'])
+            objects = [obj for obj in objects
+                       if obj['name'] in probably_interactable_objs]
+        if only_interactable:
+            interactable_objs = set(self.interactable_objects['name'])
+            objects = [obj for obj in objects
+                       if obj['name'] in interactable_objs]
 
-    @property
-    def objects(self):
-        """
-        All objects in the current scene / view.
-        """
-        objects_in_view = list(self.event.instace_detections2D.keys())
-        return self.objects_in_floor[self.objects_in_floor['objectId'].isin(objects_in_view)]
+        if ret_list:
+            return objects
+        return preprocess_objects(objects)
 
-    @property
-    def attributes(self):
-        return self.objects.columns
-
-    def get_obj_by_name(self, name):
+    def get_obj_by_name(self, name) -> pd.DataFrame:
         """
         get the objectId of an object by its name
         """
         # search on dataframe objects
         return self.objects[self.objects['name'] == name]
 
-    def get_obj_by_id(self, obj_id):
+    def get_obj_by_id(self, obj_id) -> pd.DataFrame:
         """
         get the object by its objectId
         """
         return self.objects[self.objects['objectId'] == obj_id]
 
     @property
-    def object_types(self):
+    def object_types(self) -> set:
         """
         get all the object types in the scene
         """
-        return get_object_types(self.event)
+        return get_object_types(self.objects)
 
-    def get_actionable_properties(self, object_type):
+    @property
+    def all_object_types(self) -> set:
+        return get_object_types(self.all_objects)
+
+    def get_actionable_properties(self, object_type) -> List[str]:
         """
         get all the actionable properties of an object type
         in the scene
         """
         return get_actionable_properties(self.event, object_type)
 
-    def isChangeTemp(self, obj_type):
+    def isChangeTemp(self, obj_type) -> bool:
         """
         check if the object type is a heat or cold source
         """
         return isChangeTemp(self.event, obj_type)
 
     @classmethod
-    def get_scenes(cls, scene_type):
+    def get_scenes(cls, scene_type) -> List[str]:
         """
         get all the scenes of a certain type
         """
@@ -125,12 +174,12 @@ class ButController(Controller):
         fake_controller = ButController(scene='FloorPlan1')
         return get_scenes(fake_controller, scene_type)
 
-    def focus_object_type(self, object_type, plot=True, axis_off=True):
+    def mask_object_type(self, object_type, plot=True, axis_off=True) -> np.ndarray:
         """
-        focus on a certain object type in the scene
+        Return a semantic mask of the object type in the current view
         """
         # get all objects of the object type
-        objects = self.event.objects_by_type(object_type)
+        objects = self.objects_by_type(object_type, ret_list=True)
         # get the instance_masks of all the objects of this type
         masks = self.event.instance_masks
         masked_img = np.sum([masks[obj['objectId']]
@@ -142,6 +191,17 @@ class ButController(Controller):
 
         return masked_img  # 0 and 1 mask where 1 means that pixel is part of the object
 
+    def mask_object(self, objectId, plot=True, axis_off=True) -> np.ndarray:
+        """
+        Return an instance mask of the object in the current view
+        """
+        masked_img = self.event.instance_masks[objectId]
+        if plot:
+            plt.imshow(masked_img, cmap='gray')
+            if axis_off:
+                plt.axis('off')
+        return masked_img
+
 
 class MultiButController(ButController):
     def __init__(self, scene, agentCount, **kwargs):
@@ -149,15 +209,15 @@ class MultiButController(ButController):
         self.agentCount = agentCount
         self.current_agent_id = 0
 
-    def choose_agent(self, agent_id):
+    def choose_agent(self, agent_id) -> None:
         assert agent_id < self.agentCount, "agent_id must be less than agentCount"
         self.current_agent_id = agent_id
 
     @property
-    def event(self):
+    def event(self) -> ai2thor.server.Event:
         return self.last_event.events[self.current_agent_id]
 
-    def render_agents(self):
+    def render_agents(self) -> List[np.ndarray]:
         """
         render all the agents
         """

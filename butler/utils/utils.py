@@ -1,70 +1,61 @@
 """
 Source: https://github.com/allenai/ai2thor-colab/blob/main/ai2thor_colab
 """
-from typing import Sequence, Union, Optional,  List, Tuple
+from typing import Sequence, Union, Optional,  List, Tuple, Dict
 from PIL import Image
 import ai2thor.server
 import matplotlib.pyplot as plt
 import numpy as np
 from moviepy.editor import ImageSequenceClip
+import pandas as pd
+from collections import OrderedDict
 
 
-def get_objects(event, preprocess=True) -> None:
-    """Visualizes objects in a way that they are clickable and filterable.
-    Example:
-    event = controller.step("MoveAhead")
-    objects = event.metadata["objects"]
-    show_objects_table(objects)
-    """
-    import pandas as pd
-    from collections import OrderedDict
-    objects = event.metadata['objects']
+def preprocess_objects(objects):
+    '''
+    Reorder some columns (attributes) of each object to be logical (e.g., move the objectId to the front).
+    '''
+    processed_objects = []
+    for obj in objects:
+        obj = obj.copy()
+        obj["position[x]"] = round(obj["position"]["x"], 4)
+        obj["position[y]"] = round(obj["position"]["y"], 4)
+        obj["position[z]"] = round(obj["position"]["z"], 4)
 
-    if preprocess:
-        processed_objects = []
-        for obj in objects:
-            obj = obj.copy()
-            obj["position[x]"] = round(obj["position"]["x"], 4)
-            obj["position[y]"] = round(obj["position"]["y"], 4)
-            obj["position[z]"] = round(obj["position"]["z"], 4)
+        obj["rotation[x]"] = round(obj["rotation"]["x"], 4)
+        obj["rotation[y]"] = round(obj["rotation"]["y"], 4)
+        obj["rotation[z]"] = round(obj["rotation"]["z"], 4)
 
-            obj["rotation[x]"] = round(obj["rotation"]["x"], 4)
-            obj["rotation[y]"] = round(obj["rotation"]["y"], 4)
-            obj["rotation[z]"] = round(obj["rotation"]["z"], 4)
+        del obj["position"]
+        del obj["rotation"]
 
-            del obj["position"]
-            del obj["rotation"]
+        # these are too long to display
+        del obj["objectOrientedBoundingBox"]
+        del obj["axisAlignedBoundingBox"]
+        del obj["receptacleObjectIds"]
 
-            # these are too long to display
-            del obj["objectOrientedBoundingBox"]
-            del obj["axisAlignedBoundingBox"]
-            del obj["receptacleObjectIds"]
+        obj["mass"] = round(obj["mass"], 4)
+        obj["distance"] = round(obj["distance"], 4)
 
-            obj["mass"] = round(obj["mass"], 4)
-            obj["distance"] = round(obj["distance"], 4)
+        obj = OrderedDict(obj)
+        obj.move_to_end("distance", last=False)
+        obj.move_to_end("rotation[z]", last=False)
+        obj.move_to_end("rotation[y]", last=False)
+        obj.move_to_end("rotation[x]", last=False)
 
-            obj = OrderedDict(obj)
-            obj.move_to_end("distance", last=False)
-            obj.move_to_end("rotation[z]", last=False)
-            obj.move_to_end("rotation[y]", last=False)
-            obj.move_to_end("rotation[x]", last=False)
+        obj.move_to_end("position[z]", last=False)
+        obj.move_to_end("position[y]", last=False)
+        obj.move_to_end("position[x]", last=False)
 
-            obj.move_to_end("position[z]", last=False)
-            obj.move_to_end("position[y]", last=False)
-            obj.move_to_end("position[x]", last=False)
+        obj.move_to_end("name", last=False)
+        obj.move_to_end("objectId", last=False)
+        obj.move_to_end("objectType", last=False)
 
-            obj.move_to_end("name", last=False)
-            obj.move_to_end("objectId", last=False)
-            obj.move_to_end("objectType", last=False)
-
-            processed_objects.append(obj)
-        # print(
-        #     "Object Metadata. Not showing objectOrientedBoundingBox, axisAlignedBoundingBox, and receptacleObjectIds for clarity."
-        # )
-        objects = processed_objects
-
-    df = pd.DataFrame(objects)
-    return df
+        processed_objects.append(obj)
+    # print(
+    #     "Object Metadata. Not showing objectOrientedBoundingBox, axisAlignedBoundingBox, and receptacleObjectIds for clarity."
+    # )
+    return pd.DataFrame(processed_objects)
 
 
 def plot_frames(event: Union[ai2thor.server.Event, np.ndarray]) -> None:
@@ -150,11 +141,12 @@ def show_video(frames: Sequence[np.ndarray], fps: int = 10):
     return frames.ipython_display()
 
 
-def get_object_types(event):
+def get_object_types(objects):
     """
-    Get a set of object types present in the scene.
+    Get a set of object types
+    objects: list of objects
     """
-    return set([obj["objectType"] for obj in event.metadata["objects"]])
+    return set([obj["objectType"] for obj in objects])
 
 
 # source: https://ai2thor.allenai.org/ithor/documentation/objects/object-types
@@ -213,7 +205,11 @@ def get_actionable_properties(event, obj_type):
     Get a list of actionable properties for an object type in a scene.
     """
     # find one object of the given type
-    obj = event.objects_by_type(obj_type)[0]
+    try:
+        obj = event.objects_by_type(obj_type)[0]
+    except:
+        print('No object of type {} found in the current scene'.format(obj_type))
+        return []
     # check if actionable properties is true for the object
     return [prop for prop in ACTIONABLE_PROPERTIES if obj[prop]]
 
@@ -242,7 +238,8 @@ def get_scenes(controller, scene_type):
 
 
 def side_by_side(
-    frame1: np.ndarray, frame2: np.ndarray, title: Optional[str] = None
+    frame1: np.ndarray, frame2: np.ndarray, title: Optional[str] = None,
+    cmap_dict: Optional[Dict[int, str]] = None
 ) -> None:
     """Plot 2 image frames next to each other.
     Example:
@@ -251,9 +248,12 @@ def side_by_side(
     overlay(event1.frame, event2.frame)
     """
     fig, axs = plt.subplots(nrows=1, ncols=2, dpi=150, figsize=(8, 5))
-    axs[0].imshow(frame1)
+    # cmap[0] = optional cmap for axs[0], cmap[1] = optional cmap for axs[1]
+    axs[0].imshow(
+        frame1, cmap=None if not cmap_dict or 0 not in cmap_dict else cmap_dict[0])
     axs[0].axis("off")
-    axs[1].imshow(frame2)
+    axs[1].imshow(
+        frame2, cmap=None if not cmap_dict or 1 not in cmap_dict else cmap_dict[1])
     axs[1].axis("off")
     if title:
         fig.suptitle(title, y=0.85, x=0.5125)
@@ -275,3 +275,8 @@ def visualize_frames(
     if title:
         fig.suptitle(title)
     return fig
+
+
+def is_in(obj, objs):
+    if isinstance(objs, list):
+        pass
