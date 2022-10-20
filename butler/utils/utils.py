@@ -199,6 +199,36 @@ LOOK = [
     "lookDown",
 ]
 
+INTERACTIONS = [
+    'OpenObject',
+    'CloseObject',
+    'PickupObject',
+    'PutObject',
+    'DropObject',
+    'ThrowObject',
+    'MoveHeldObjectAhead',
+    'MoveHeldObjectBack',
+    'MoveHeldObjectLeft',
+    'MoveHeldObjectRight',
+    'RotateHeldObject',
+    'DirectionalPush',
+    'Push',
+    'Pull',
+    'TouchThenApplyForce',
+    'BreakObject',
+    'CookObject',
+    'SliceObject',
+    'ToggleObjectOn',
+    'ToggleObjectOff',
+    'DirtyObject',
+    'CleanObject',
+    'FillObjectWithLiquid',
+    'EmptyLiquidFromObject',
+    'UseUpObject',
+]
+# most actions here have visually identifiable effects
+# The only thing that don't are probably the Toggling.
+
 
 def get_actionable_properties(event, obj_type):
     """

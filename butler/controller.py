@@ -18,9 +18,41 @@ class ButController(Controller):
                          renderSemanticSegmentation=True,
                          **kwargs)
 
+        self.stored_frames = {}  # for rendering video,
+        # self.stored_frames['camera_id'] = self.event.third_party_camera_frames[camera_id]
+        # self.stored_frames['agent_camera'] = self.event.frame
+
     @property
     def event(self) -> ai2thor.server.Event:
         return self.last_event
+
+    def show_video(self, camera='agent_camera', fps=10) -> None:
+        """
+        show the video of the stored frames
+        """
+        if camera in self.stored_frames:
+            show_video(self.stored_frames[camera], fps=fps)
+
+    def flush_stored_frames(self, camera='all') -> None:
+        if camera == 'all':
+            self.stored_frames = {}
+        elif camera in self.stored_frames:
+            del self.stored_frames[camera]
+
+    def step(self, action, **kwargs) -> ai2thor.server.Event:
+        """
+        Step the environment but if stored_frame=True
+        is passed as a keyword argument, store the frame
+        """
+        event = super().step(action, **kwargs)
+        if 'stored_frame' in kwargs and kwargs['stored_frame']:
+            camera = kwargs['camera'] if 'camera' in kwargs else 'agent_camera'
+            if camera == 'agent_camera':
+                frames = self.event.frame
+            else:
+                frames = self.event.third_party_camera_frames[int(camera)]
+            self.stored_frames[camera].append(frames)
+        return event
 
     @property
     def agent(self) -> Dict:
@@ -202,6 +234,15 @@ class ButController(Controller):
                 plt.axis('off')
         return masked_img
 
+    def render_third_party_camera(self, camera_id=0, plot=True, axis_off=True) -> np.ndarray:
+        if not self.event.third_party_camera_frames:
+            return
+        if plot:
+            plt.imshow(self.event.third_party_camera_frames[camera_id])
+        if axis_off:
+            plt.axis('off')
+        return self.event.third_party_camera_frames[camera_id]
+
 
 class MultiButController(ButController):
     def __init__(self, scene, agentCount, **kwargs):
@@ -224,3 +265,10 @@ class MultiButController(ButController):
         rgb_frames = [event.frame for event in self.last_event.events]
         visualize_frames(rgb_frames)
         return rgb_frames
+
+
+class PrimitiveButController(ButController):
+    def __init__(self, scene, **kwargs):
+        super().__init__(scene=scene,
+                         agentMode="arm",
+                         **kwargs)
