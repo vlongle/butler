@@ -10,6 +10,7 @@ class ButlerStackingTask(Stack):
     
     white = np.array([1.0, 1.0, 1.0, 1.0])
     red = np.array([1.0, 0.0, 0.0, 1.0])
+    blue = np.array([0.0, 0.0, 1.0, 1.0])
     transparent = np.array([0.0, 0.0, 0.0, 0.0])
     
     def _create_scene(self) -> None:
@@ -18,8 +19,9 @@ class ButlerStackingTask(Stack):
         self.sim.create_box(
             body_name="object1",
             half_extents=np.ones(3) * self.object_size / 2,
-            mass=2.0,
-            position=np.array([0.0, 0.0, self.object_size / 2]),
+            mass=1.0,
+            ghost=False,
+            position=np.array([0.0, 0.0, 0.05]),
             rgba_color=ButlerStackingTask.red,
         )
         self.sim.create_box(
@@ -27,14 +29,15 @@ class ButlerStackingTask(Stack):
             half_extents=np.ones(3) * self.object_size / 2,
             mass=0.0,
             ghost=True,
-            position=np.array([0.0, 0.0, -1e3]),
+            position=np.array([0.0, 0.0, 0.05]),
             rgba_color=ButlerStackingTask.transparent,
         )
         self.sim.create_box(
             body_name="object2",
             half_extents=np.ones(3) * self.object_size / 2,
             mass=1.0,
-            position=np.array([0.5, 0.0, self.object_size / 2]),
+            ghost=False,
+            position=np.array([0.5, 0.0, 0.05]),
             rgba_color=ButlerStackingTask.red,
         )
         self.sim.create_box(
@@ -42,6 +45,15 @@ class ButlerStackingTask(Stack):
             half_extents=np.ones(3) * self.object_size / 2,
             mass=0.0,
             ghost=True,
-            position=np.array([0.0, 0.0, -1e3]),
+            position=np.array([0.5, 0.0, 0.05]),
             rgba_color=ButlerStackingTask.transparent,
         )
+        
+    def reset(self) -> None:
+        self.goal = self._sample_goal()
+        object1_position = np.array([0.0, 0.0, self.object_size / 2])
+        object2_position = np.array([0.0, 0.0, self.object_size / 2 + self.object_size]) 
+        self.sim.set_base_pose("target1", np.array([0.0,0.0,-1e3]), np.array([0.0, 0.0, 0.0, 1.0]))
+        self.sim.set_base_pose("target2", np.array([0.0,0.0,-1e3]), np.array([0.0, 0.0, 0.0, 1.0]))
+        self.sim.set_base_pose("object1", object1_position, np.array([0.0, 0.0, 0.0, 1.0]))
+        self.sim.set_base_pose("object2", object2_position, np.array([0.0, 0.0, 0.0, 1.0]))
